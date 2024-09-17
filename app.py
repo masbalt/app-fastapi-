@@ -39,7 +39,7 @@ else:
 
 class Passenger(BaseModel):
     PassengerId: str
-    HomePlanet: Optional[str]
+    HomePlanet: Optional[str]   
     CryoSleep: Optional[bool]
     Cabin: Optional[str]
     Destination: Optional[str]
@@ -65,6 +65,9 @@ async def get_model():
 
 @app.post("/predict")
 async def predict(passengers: List[Passenger]):
+    if model is None:
+        return {"error": "Model not loaded."}
+
     input_data_df = pd.DataFrame([passenger.dict() for passenger in passengers])
     
     cond = (input_data_df['CryoSleep'] == True)

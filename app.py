@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import joblib
 import os
@@ -9,7 +10,19 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 
+pd.set_option('future.no_silent_downcasting', True)
+
 money_columns = ['RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
+
+app = FastAPI()
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.joblib')
+
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+else:
+    model = None
+
 numeric_features = ['Num', 'Age', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
 categorical_features = ['HomePlanet', 'CryoSleep', 'Destination', 'VIP', 'Deck', 'Side']
 
@@ -28,14 +41,27 @@ preprocessor = ColumnTransformer([
     ('categorical', categorical_pipeline, categorical_features)
 ])
 
-app = FastAPI()
+def transformdata(data, trmode):
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.joblib')
+    cond = (data['CryoSleep'] == True)
+    data.loc[cond, money_columns] = data.loc[cond, money_columns].fillna(0)
+    data.loc[cond, ['VIP']] = data.loc[cond, ['VIP']].fillna(False)
 
-if os.path.exists(MODEL_PATH):
-    model = joblib.load(MODEL_PATH)
-else:
-    model = None
+    data[['Deck', 'Num', 'Side']] = data['Cabin'].str.split('/', expand=True)
+    data.drop(columns=['Cabin'], inplace=True)
+
+    cond = (data[money_columns].eq(0).all(axis=1))
+    data.loc[cond, ['CryoSleep']] = data.loc[cond, ['CryoSleep']].fillna(True)
+
+    data['Age'] = data['Age'].fillna(data.groupby(['HomePlanet', 'CryoSleep', 'VIP'])['Age'].transform('mean'))
+
+    transformed_data = preprocessor.transform(data)
+
+    if trmode == 1:
+        traindata = data.drop("Transported", axis = 1)
+        restraindata = data["Transported"]
+        return [traindata, restraindata]
+    return transformed_data
 
 class Passenger(BaseModel):
     PassengerId: str
@@ -62,35 +88,30 @@ async def get_model():
         )
     else:
         return {"error": "Model file not found."}
+    
+traindata = pd.read_csv('train.csv')
+tf_traindata = transformdata(traindata, trmode = 1)
 
 @app.post("/predict")
 async def predict(passengers: List[Passenger]):
     if model is None:
         return {"error": "Model not loaded."}
-
-    input_data_df = pd.DataFrame([passenger.dict() for passenger in passengers])
     
-    cond = (input_data_df['CryoSleep'] == True)
-    input_data_df.loc[cond, money_columns] = input_data_df.loc[cond, money_columns].fillna(0)
-    input_data_df.loc[cond, ['VIP']] = input_data_df.loc[cond, ['VIP']].fillna(False)
+    passengers_data = [passenger.model_dump() for passenger in passengers]
+    passengers_df = pd.DataFrame(passengers_data)
+    passengers_ids = passengers_df['PassengerId']
+    transformed_data = transformdata(passengers_df, trmode = 0)
 
-    input_data_df[['Deck', 'Num', 'Side']] = input_data_df['Cabin'].str.split('/', expand=True)
-    input_data_df.drop(columns=['Cabin'], inplace=True)
-
-    cond = (input_data_df[money_columns].eq(0).all(axis=1))
-    input_data_df.loc[cond, ['CryoSleep']] = input_data_df.loc[cond, ['CryoSleep']].fillna(True)
-
-    input_data_df['Age'] = input_data_df['Age'].fillna(input_data_df.groupby(['HomePlanet', 'CryoSleep', 'VIP'])['Age'].transform('mean'))
-
-    transformed_data = preprocessor.transform(input_data_df)
-
+    
+    missing_columns = set(tf_traindata.columns) - set(passengers_df.columns)
+    for column in missing_columns:
+        transformed_data[column] = 0
+    transformed_data = transformed_data[tf_traindata.columns]
+    
     predictions = model.predict(transformed_data)
     
-    results = []
-    for passenger, prediction in zip(passengers, predictions):
-        results.append({
-            "PassengerId": passenger.PassengerId,
-            "Transported": str(bool(prediction))
-        })
-
-    return results
+    output = pd.DataFrame({
+        "PassengerId": passengers_ids,
+        "Transported": str(bool(predictions))
+    })
+    return JSONResponse(output.to_dict(orient='records'))

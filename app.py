@@ -47,20 +47,19 @@ def transformdata(data, trmode):
     data.loc[cond, money_columns] = data.loc[cond, money_columns].fillna(0)
     data.loc[cond, ['VIP']] = data.loc[cond, ['VIP']].fillna(False)
 
-    data[['Deck', 'Num', 'Side']] = data['Cabin'].str.split('/', expand=True)
-    data.drop(columns=['Cabin'], inplace=True)
-
     cond = (data[money_columns].eq(0).all(axis=1))
     data.loc[cond, ['CryoSleep']] = data.loc[cond, ['CryoSleep']].fillna(True)
 
     data['Age'] = data['Age'].fillna(data.groupby(['HomePlanet', 'CryoSleep', 'VIP'])['Age'].transform('mean'))
-
-    transformed_data = preprocessor.transform(data)
+    data[['Deck', 'Num', 'Side']] = data['Cabin'].str.split('/', expand=True)
+    data.drop(columns=['Cabin'], inplace=True)
 
     if trmode == 1:
         traindata = data.drop("Transported", axis = 1)
         restraindata = data["Transported"]
         return [traindata, restraindata]
+    
+    transformed_data = preprocessor.fit_transform(data)
     return transformed_data
 
 class Passenger(BaseModel):
@@ -114,4 +113,4 @@ async def predict(passengers: List[Passenger]):
         "PassengerId": passengers_ids,
         "Transported": str(bool(predictions))
     })
-    return JSONResponse(output.to_dict(orient='records'))
+    return JSONResponse(content=output.to_dict(orient='records'))

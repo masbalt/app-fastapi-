@@ -9,58 +9,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+import logging
 
 pd.set_option('future.no_silent_downcasting', True)
-
-money_columns = ['RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
-
-app = FastAPI()
-
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.joblib')
-
-if os.path.exists(MODEL_PATH):
-    model = joblib.load(MODEL_PATH)
-else:
-    model = None
-
-numeric_features = ['Num', 'Age', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
-categorical_features = ['HomePlanet', 'CryoSleep', 'Destination', 'VIP', 'Deck', 'Side']
-
-numeric_pipeline = Pipeline([
-    ('imputer', SimpleImputer(strategy='mean')),
-    ('scaler', StandardScaler())
-])
-
-categorical_pipeline = Pipeline([
-    ('imputer', SimpleImputer(strategy='most_frequent')),
-    ('encoder', OneHotEncoder(handle_unknown='ignore'))
-])
-
-preprocessor = ColumnTransformer([
-    ('numeric', numeric_pipeline, numeric_features),
-    ('categorical', categorical_pipeline, categorical_features)
-])
-
-def transformdata(data, trmode):
-
-    cond = (data['CryoSleep'] == True)
-    data.loc[cond, money_columns] = data.loc[cond, money_columns].fillna(0)
-    data.loc[cond, ['VIP']] = data.loc[cond, ['VIP']].fillna(False)
-
-    cond = (data[money_columns].eq(0).all(axis=1))
-    data.loc[cond, ['CryoSleep']] = data.loc[cond, ['CryoSleep']].fillna(True)
-
-    data['Age'] = data['Age'].fillna(data.groupby(['HomePlanet', 'CryoSleep', 'VIP'])['Age'].transform('mean'))
-    data[['Deck', 'Num', 'Side']] = data['Cabin'].str.split('/', expand=True)
-    data.drop(columns=['Cabin'], inplace=True)
-
-    if trmode == 1:
-        traindata = data.drop("Transported", axis = 1)
-        restraindata = data["Transported"]
-        return [traindata, restraindata]
-    
-    transformed_data = preprocessor.fit_transform(data)
-    return transformed_data
 
 class Passenger(BaseModel):
     PassengerId: str
@@ -77,6 +28,70 @@ class Passenger(BaseModel):
     VRDeck: Optional[float]
     Name: Optional[str]
 
+
+
+
+logging.basicConfig(
+    level=logging.INFO,  # Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),  # Запись логов в файл
+        logging.StreamHandler()  # Вывод логов в консоль
+    ]
+)
+logger = logging.getLogger(__name__)
+
+money_columns = ['RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
+numeric_features = ['Num', 'Age', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
+categorical_features = ['HomePlanet', 'CryoSleep', 'Destination', 'VIP', 'Deck', 'Side']
+
+app = FastAPI()
+
+#загружаем модель и препроцессор
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'voting_classifier.pkl')
+
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+else:
+    model = None
+
+preprocessor = joblib.load(os.path.join(os.path.dirname(__file__), 'preprocessor.pkl'))
+
+def transformdata(data):
+    def split_cabin(cabin):
+        if pd.isna(cabin):
+            return pd.Series({'Deck': None, 'Num': None, 'Side': None})
+        try:
+            deck, num, side = cabin.split('/')
+            return pd.Series({'Deck': deck, 'Num': num, 'Side': side})
+        except:
+            return pd.Series({'Deck': None, 'Num': None, 'Side': None})
+
+    logger.info('Transforming data for prediction.')
+
+    cond = (data['CryoSleep'] == True)
+    data.loc[cond, money_columns] = data.loc[cond, money_columns].fillna(0)
+    data.loc[cond, ['VIP']] = data.loc[cond, ['VIP']].fillna(False)
+
+    cond = (data[money_columns].eq(0).all(axis=1))
+    data.loc[cond, ['CryoSleep']] = data.loc[cond, ['CryoSleep']].fillna(True)
+    data['CryoSleep'].fillna(False, inplace=True)
+
+    age_means = data.groupby(['HomePlanet', 'CryoSleep', 'VIP'])['Age'].transform('mean')
+    data['Age'] = data['Age'].fillna(age_means)
+    
+
+    cabin_split = data['Cabin'].apply(split_cabin)
+    data = pd.concat([data, cabin_split], axis=1)
+    data.drop(columns=['Cabin'], inplace=True)
+    data['Num'] = pd.to_numeric(data['Num'], errors='coerce')
+
+    data.drop(columns=['Name', 'PassengerId'], inplace=True)
+
+    logger.info('Data transformed successfully.')
+    return data
+
+
 @app.post("/get_model")
 async def get_model():
     if os.path.exists(MODEL_PATH):
@@ -88,29 +103,37 @@ async def get_model():
     else:
         return {"error": "Model file not found."}
     
-traindata = pd.read_csv('train.csv')
-tf_traindata = transformdata(traindata, trmode = 1)
 
 @app.post("/predict")
 async def predict(passengers: List[Passenger]):
-    if model is None:
-        return {"error": "Model not loaded."}
-    
-    passengers_data = [passenger.model_dump() for passenger in passengers]
-    passengers_df = pd.DataFrame(passengers_data)
-    passengers_ids = passengers_df['PassengerId']
-    transformed_data = transformdata(passengers_df, trmode = 0)
+    logger.info('Received prediction request.')
+    if model is None or preprocessor is None:
+        logger.error('Model or preprocessor not loaded.')
+        return {"error": "Model or preprocessor not loaded."}
 
-    
-    missing_columns = set(tf_traindata.columns) - set(passengers_df.columns)
-    for column in missing_columns:
-        transformed_data[column] = 0
-    transformed_data = transformed_data[tf_traindata.columns]
-    
-    predictions = model.predict(transformed_data)
-    
-    output = pd.DataFrame({
-        "PassengerId": passengers_ids,
-        "Transported": str(bool(predictions))
-    })
-    return JSONResponse(content=output.to_dict(orient='records'))
+    try:
+        passengers_data = [passenger.model_dump() for passenger in passengers]
+        passengers_df = pd.DataFrame(passengers_data)
+        logger.info('Dataframe created from passengers data.')
+
+        passengers_ids = passengers_df['PassengerId']
+
+        transformed_data = transformdata(passengers_df)
+        
+        transformed_data = preprocessor.transform(transformed_data)
+        logger.info('Data preprocessed successfully.')
+
+        predictions = model.predict(transformed_data)
+        logger.info('Predictions made successfully.')
+
+        output = pd.DataFrame({
+            "PassengerId": passengers_ids,
+            "Transported": predictions
+        })
+        output['Transported'] = output['Transported'].apply(lambda x: 'True' if x else 'False')
+
+        return JSONResponse(content=output.to_dict(orient='records'))
+
+    except Exception as e:
+        logger.error(f'Error occurred during prediction: {e}')
+        return {"error": "An error occurred during prediction."}

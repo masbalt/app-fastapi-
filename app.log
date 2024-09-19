@@ -1,0 +1,29 @@
+2024-09-18 23:39:59,367 - app - INFO - Transforming data with mode 1
+2024-09-18 23:39:59,992 - app - INFO - Returning training data.
+2024-09-18 23:40:09,737 - app - INFO - Received prediction request.
+2024-09-18 23:40:09,738 - app - INFO - Dataframe created from passengers data.
+2024-09-18 23:40:09,739 - app - INFO - Transforming data with mode 0
+2024-09-18 23:40:09,746 - app - ERROR - Error occurred during prediction: 'Transported'
+2024-09-18 23:40:46,068 - app - INFO - Transforming data with mode 1
+2024-09-18 23:40:46,690 - app - INFO - Returning training data.
+2024-09-18 23:40:58,053 - app - INFO - Transforming data with mode 1
+2024-09-18 23:40:58,689 - app - INFO - Returning training data.
+2024-09-18 23:41:05,124 - app - INFO - Received prediction request.
+2024-09-18 23:41:05,126 - app - INFO - Dataframe created from passengers data.
+2024-09-18 23:41:05,126 - app - INFO - Transforming data with mode 0
+2024-09-18 23:41:05,137 - app - ERROR - Error occurred during prediction: 'Transported'
+2024-09-19 22:22:33,231 - app - INFO - Received prediction request.
+2024-09-19 22:22:33,233 - app - INFO - Dataframe created from passengers data.
+2024-09-19 22:22:33,234 - app - INFO - Transforming data for prediction.
+2024-09-19 22:22:33,247 - app - INFO - Data transformed successfully.
+2024-09-19 22:22:33,247 - app - ERROR - Error occurred during prediction: nested renamer is not supported
+2024-09-19 22:33:13,364 - app - INFO - Received prediction request.
+2024-09-19 22:33:13,365 - app - INFO - Dataframe created from passengers data.
+2024-09-19 22:33:13,365 - app - INFO - Transforming data for prediction.
+2024-09-19 22:33:13,373 - app - INFO - Data transformed successfully.
+2024-09-19 22:33:13,373 - app - ERROR - Error occurred during prediction: nested renamer is not supported
+2024-09-19 22:33:14,882 - app - INFO - Received prediction request.
+2024-09-19 22:33:14,883 - app - INFO - Dataframe created from passengers data.
+2024-09-19 22:33:14,883 - app - INFO - Transforming data for prediction.
+2024-09-19 22:33:14,889 - app - INFO - Data transformed successfully.
+2024-09-19 22:33:14,889 - app - ERROR - Error occurred during prediction: nested renamer is not supported
